@@ -11,7 +11,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: 'recursive'
-          fetch-depth: 1
+          fetch-depth: 0 # 改回 0，获取完整历史以修复 CMake 报错
+
+      - name: Fix Git Environment
+        run: |
+          # 强制创建一个本地分支名，防止 CMake 抓取不到分支而报错
+          git checkout -b feature/broadcast-receiver-automation || git checkout feature/broadcast-receiver-automation
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -23,8 +30,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: "1.23"
-          # 核心修复：直接关闭缓存，避免它去根目录找 go.sum 报错
-          cache: false 
+          cache: false
 
       - name: Update CA Certificates
         run: |
@@ -34,17 +40,19 @@ jobs:
           cp -f /etc/ssl/certs/ca-certificates.crt core/src/foss/golang/clash/component/ca/ca-certificates.crt || true
 
       - name: Build v8a Debug APK
+        env:
+          # 提高 Gradle 内存，防止 C++ 链接时 OOM
+          _JAVA_OPTIONS: "-Xmx4g"
         run: |
-          # 增加权限
           chmod +x gradlew
-          # 开始编译
+          # 增加编译参数排除干扰
           ./gradlew clean app:assembleMetaDebug \
             -PabiList=arm64-v8a \
             -Pandroid.bundle.enableSplit=false \
-            --no-daemon
+            --no-daemon \
+            --stacktrace
 
       - name: Prepare Artifacts
-        # 这一步能确保 ZIP 包里只有 APK，不会有 400MB
         run: |
           mkdir -p out
           find app/build/outputs/apk/meta/debug/ -name "*.apk" -exec cp {} out/ \;
@@ -53,5 +61,5 @@ jobs:
       - name: Upload Clean APK
         uses: actions/upload-artifact@v4
         with:
-          name: ClashMeta-v8a-Final
+          name: ClashMeta-v8a-Tasker
           path: out/*.apk
