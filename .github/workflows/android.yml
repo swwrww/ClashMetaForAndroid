@@ -1,7 +1,7 @@
 name: Build Clash v8a for Tasker
 
 on:
-  workflow_dispatch: # 允许你手动在 Actions 页面点击按钮编译
+  workflow_dispatch:
 
 jobs:
   build:
@@ -10,44 +10,47 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          # 关键：递归克隆子模块，确保 core 内核代码不为空
           submodules: 'recursive'
-          fetch-depth: 0
+          fetch-depth: 1 # 减少克隆深度，加快速度
 
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: "temurin"
-          java-version: 21 # Clash Meta 推荐使用 JDK 21
+          java-version: 21
 
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: "1.23"
-          cache: false # 禁用缓存防止 go.sum 报错
 
       - name: Update CA Certificates
         run: |
           sudo apt-get update && sudo apt-get install ca-certificates
           sudo update-ca-certificates
-          # 确保内核编译所需的证书路径存在
           mkdir -p core/src/foss/golang/clash/component/ca/
           cp -f /etc/ssl/certs/ca-certificates.crt core/src/foss/golang/clash/component/ca/ca-certificates.crt || true
 
-      - name: Build arm64-v8a Debug APK
+      - name: Build v8a Debug APK
         run: |
           chmod +x gradlew
-          # clean: 清除旧缓存
-          # -PabiList: 只编译 64 位 v8a 架构
-          # -Pandroid.bundle.enableSplit=false: 强制生成单文件 APK，防止因分包导致的闪退
           ./gradlew clean app:assembleMetaDebug \
             -PabiList=arm64-v8a \
             -Pandroid.bundle.enableSplit=false \
-            --no-daemon \
-            --stacktrace
+            --no-daemon
 
-      - name: Upload v8a APK
+      # 关键步骤：把 APK 移动到一个干净的目录，防止 GitHub 乱打包
+      - name: Prepare Artifacts
+        run: |
+          mkdir -p out
+          cp app/build/outputs/apk/meta/debug/*.apk out/
+          echo "Final APKs in out directory:"
+          ls -lh out/
+
+      - name: Upload Clean APK
         uses: actions/upload-artifact@v4
         with:
-          name: ClashMeta-Tasker-v8a
-          path: app
+          name: ClashMeta-Final-v8a
+          # 只上传 out 目录下的 apk 文件，绝对不会再有 400MB
+          path: out/*.apk
+          if-no-files-found: error
